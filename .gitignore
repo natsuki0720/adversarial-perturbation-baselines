@@ -1,5 +1,5 @@
 *.pt
 outputs/
 *.pt
-data/cifar10
+data/
 attacks/fgsm/
