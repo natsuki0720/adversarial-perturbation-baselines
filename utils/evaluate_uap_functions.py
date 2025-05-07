@@ -138,3 +138,18 @@ def plot_ssim_vs_correctness(model, dataset, delta, max_samples=1000, device="cp
 
     print(f"平均 SSIM（誤分類時）: {np.mean([s for s, c in zip(ssim_list, correct_list) if c == 0]):.4f}")
     print(f"平均 SSIM（正解時）: {np.mean([s for s, c in zip(ssim_list, correct_list) if c == 1]):.4f}")
+
+
+
+def generate_mask(patch_size=(8, 8), image_shape=(3, 32, 32)):
+    """
+    patch_size: (height, width) of the patch to activate (e.g., (8, 8))
+    image_shape: (C, H, W) shape of the image (default CIFAR-10)
+    
+    Returns:
+        mask: Tensor of shape [1, C, H, W] with 1s in patch region, 0s elsewhere
+    """
+    mask = torch.zeros(image_shape)
+    h, w = patch_size
+    mask[:, :h, :w] = 1.0
+    return mask.unsqueeze(0)  # shape: [1, C, H, W]
