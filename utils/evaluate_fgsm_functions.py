@@ -2,6 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 from torchvision import transforms
 from skimage.metrics import structural_similarity as ssim
+import pandas as pd
 
 classes = ['airplane', 'automobile', 'bird', 'cat', 'deer',
            'dog', 'frog', 'horse', 'ship', 'truck']
@@ -19,7 +20,7 @@ def to_numpy_img(tensor_img):
     return tensor_img.permute(1, 2, 0).detach().cpu().numpy()
 
 # 可視化関数（正規化を再適用したうえで推論・SSIM・描画）
-def visualize_adversarial_pair(model, adv_data_path, index=0, device='cpu'):
+def visualize_adversarial_pair(model, adv_data_path, index=0, device='cpu', model_name="Model"):
     model.to(device)
     model.eval()
 
@@ -59,17 +60,18 @@ def visualize_adversarial_pair(model, adv_data_path, index=0, device='cpu'):
         ax.set_title(f"{title}\nTrue: {classes[label]}\nPred: {classes[pred]}", fontsize=10)
         ax.axis('off')
 
-    plt.suptitle(f"SSIM: {ssim_val:.4f}", fontsize=12)
+    plt.suptitle(f"{model_name} | SSIM: {ssim_val:.4f}", fontsize=12)
     plt.tight_layout()
     plt.show()
+
     
-def evaluate_accuracy_on_adv(model, adv_data_path, device='cpu'):
+def evaluate_accuracy_on_adv(model, adv_data_path, device='cpu', model_name="UnnamedModel"):
     model.to(device)
     model.eval()
 
     # 敵対例データの読み込み
     data = torch.load(adv_data_path)
-    orig = data['original']  # shape: [10000, 3, 32, 32]
+    orig = data['original']  # shape: [N, 3, 32, 32]
     adv = data['adversarial']
     labels = data['labels'].to(device)
 
@@ -85,5 +87,11 @@ def evaluate_accuracy_on_adv(model, adv_data_path, device='cpu'):
     acc_orig = (pred_orig == labels).float().mean().item()
     acc_adv = (pred_adv == labels).float().mean().item()
 
-    print(f"Accuracy on Original:    {acc_orig * 100:.2f}%")
-    print(f"Accuracy on Adversarial: {acc_adv * 100:.2f}%")
+    # DataFrameで整形して出力
+    df = pd.DataFrame({
+        "Model": [model_name],
+        "Original Accuracy (%)": [acc_orig * 100],
+        "Adversarial Accuracy (%)": [acc_adv * 100],
+        "Accuracy Drop (%)": [(acc_orig - acc_adv) * 100]
+    }).round(3)
+    return df  # 必要なら後続処理でも使える

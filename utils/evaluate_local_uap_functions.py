@@ -34,7 +34,11 @@ def calculate_ssim(img1, img2):
     ])
 
 # Local UAP評価関数（Accuracy + SSIM）
-def evaluate_local_uap(model, delta, mask, test_loader, device, max_ssim_samples=100):
+import pandas as pd
+import numpy as np
+
+def evaluate_local_uap(model, delta, mask, test_loader, device, 
+                       model_name="UnnamedModel", attack_name="Local UAP", max_ssim_samples=100):
     model.eval()
     correct = 0
     total = 0
@@ -58,18 +62,27 @@ def evaluate_local_uap(model, delta, mask, test_loader, device, max_ssim_samples
     acc = correct / total
     avg_ssim = np.mean(ssim_vals) if ssim_vals else float("nan")
 
-    print(f"[Local UAP] Accuracy: {acc * 100:.2f}% | SSIM: {avg_ssim:.4f}")
-    return acc, avg_ssim
+    # 表形式で結果出力
+    df = pd.DataFrame({
+        "Model": [model_name],
+        "Attack": [attack_name],
+        "Accuracy (%)": [round(acc * 100, 2)],
+        "SSIM": [round(avg_ssim, 4)],
+        "Accuracy Drop (%)": ["–"]  # 必要なら後で比較して追加
+    })
+
+    return df
 
 CIFAR10_CLASSES = [
     "airplane", "automobile", "bird", "cat", "deer",
     "dog", "frog", "horse", "ship", "truck"
 ]
 
-def visualize_local_uap_prediction(model, delta, mask, dataset, index, device):
+def visualize_local_uap_prediction(model, delta, mask, dataset, index, device,
+                                   model_name="Model", class_names=None):
     model.eval()
 
-    # 元画像とラベル取得
+    # データ取得
     image, label = dataset[index]
     image = image.unsqueeze(0).to(device)
     label = torch.tensor([label]).to(device)
@@ -84,13 +97,25 @@ def visualize_local_uap_prediction(model, delta, mask, dataset, index, device):
         pred_clean = output_clean.argmax(dim=1).item()
         pred_adv = output_adv.argmax(dim=1).item()
 
-    # 可視化
+    # SSIM計算（正規化前の画像で）
+    ssim_val = calculate_ssim(image[0], adv_image[0])
+
+    # ラベル表示用
+    if class_names is None:
+        class_names = [str(i) for i in range(10)]
+
+    # 可視化（正規化済み画像をそのまま表示）
     fig, axs = plt.subplots(1, 2, figsize=(6, 3))
-    axs[0].imshow(image[0].permute(1, 2, 0).cpu())
-    axs[0].set_title(f"Original\nPred: {CIFAR10_CLASSES[pred_clean]}")
-    axs[1].imshow(adv_image[0].permute(1, 2, 0).cpu())
-    axs[1].set_title(f"Adversarial\nPred: {CIFAR10_CLASSES[pred_adv]}")
+    axs[0].imshow(image[0].permute(1, 2, 0).detach().cpu())
+    axs[0].set_title(f"Original\nTrue: {class_names[label.item()]}\nPred: {class_names[pred_clean]}")
+
+    axs[1].imshow(adv_image[0].permute(1, 2, 0).detach().cpu())
+    axs[1].set_title(f"Adversarial\nPred: {class_names[pred_adv]}")
+
     for ax in axs:
         ax.axis("off")
+
+    plt.suptitle(f"{model_name} | SSIM: {ssim_val:.4f}", fontsize=12)
     plt.tight_layout()
     plt.show()
+

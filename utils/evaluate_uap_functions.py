@@ -3,29 +3,55 @@ from torchvision import datasets, transforms
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage.metrics import structural_similarity as ssim
+import pandas as pd
 
 normalize = transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
                                  std=(0.2023, 0.1994, 0.2010))
-
-def evaluate_uap(model, dataloader, delta = None,device = "cpu"):
-    correct = 0
-    total = 0
+CIFAR10_CLASSES = [
+    "airplane", "automobile", "bird", "cat", "deer",
+    "dog", "frog", "horse", "ship", "truck"
+]
+def evaluate_uap(model, dataloader, delta=None, device="cpu", model_name="UnnamedModel", attack_name="UAP"):
+    model = model.to(device)
     model.eval()
+
+    correct_orig = 0
+    correct_adv = 0
+    total = 0
+
     for x, y in dataloader:
         x, y = x.to(device), y.to(device)
-        
-        if delta is not None:
-            x = torch.clamp(x + delta, 0,1)
-        
-        x = normalize(x)
-        
+        total += y.size(0)
+
+        # 正常データでの予測
+        x_norm = normalize(x)
         with torch.no_grad():
-            out = model(x)
-            pred = out.argmax(1)
-            correct += (pred == y).sum().item()
-            total += y.size(0)
-        
-    return correct / total
+            pred_orig = model(x_norm).argmax(1)
+        correct_orig += (pred_orig == y).sum().item()
+
+        # 摂動ありの予測
+        if delta is not None:
+            x_adv = torch.clamp(x + delta.to(device), 0, 1)
+            x_adv_norm = normalize(x_adv)
+            with torch.no_grad():
+                pred_adv = model(x_adv_norm).argmax(1)
+            correct_adv += (pred_adv == y).sum().item()
+        else:
+            correct_adv = correct_orig  # same if no attack
+
+    acc_orig = correct_orig / total
+    acc_adv = correct_adv / total
+
+    # DataFrame出力
+    df = pd.DataFrame({
+        "Model": [model_name],
+        "Attack": [attack_name],
+        "Original Accuracy (%)": [round(acc_orig * 100, 2)],
+        "Adversarial Accuracy (%)": [round(acc_adv * 100, 2)],
+        "Accuracy Drop (%)": [round((acc_orig - acc_adv) * 100, 2)]
+    })
+
+    return df
 
 def denormalize(img_tensor):
     mean = torch.tensor([0.4914, 0.4822, 0.4465]).view(3,1,1).to(img_tensor.device)
@@ -35,7 +61,7 @@ def denormalize(img_tensor):
 def to_numpy_img(t):
     return np.transpose(t.detach().cpu().numpy(), (1,2,0))
  
-def visualize_uap_effect(model, delta, dataset, index=0,device = "cpu"):
+def visualize_uap_effect(model, delta, dataset, index=0,device = "cpu",model_name="Model",class_names = CIFAR10_CLASSES):
     model.eval()
     x, y = dataset[index]
     x = x.unsqueeze(0).to(next(model.parameters()).device)
@@ -53,16 +79,24 @@ def visualize_uap_effect(model, delta, dataset, index=0,device = "cpu"):
     ssim_val = ssim(to_numpy_img(x_vis), to_numpy_img(x_adv_vis), channel_axis=2, data_range=1.0)
 
 
+    # クラス名処理
+    if class_names is None:
+        class_names = [str(i) for i in range(10)]
+
+    # 可視化
     fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-    axs[0].imshow(to_numpy_img(x_vis))
-    axs[0].set_title(f"Original\nTrue: {y.item()}, Pred: {pred_orig}")
-    axs[1].imshow(to_numpy_img(x_adv_vis))
-    axs[1].set_title(f"Adversarial\nTrue: {y.item()}, Pred: {pred_adv}")
+    axs[0].imshow(to_numpy_img(x[0].detach().cpu()))
+    axs[0].set_title(f"Original\nTrue: {class_names[y.item()]}\nPred: {class_names[pred_orig]}")
+
+    axs[1].imshow(to_numpy_img(x_adv[0].detach().cpu()))
+    axs[1].set_title(f"Adversarial\nPred: {class_names[pred_adv]}")
+
     for ax in axs:
         ax.axis("off")
-    plt.suptitle(f"SSIM: {ssim_val:.4f}")
+
+    plt.suptitle(f"{model_name} | SSIM: {ssim_val:.4f}")
     plt.tight_layout()
-    plt.show()   
+    plt.show() 
 
 def plot_ssim_distribution(dataset, delta, max_samples=10000, device="cpu"):
 
